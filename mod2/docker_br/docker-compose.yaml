@@ -1,0 +1,26 @@
+services:
+  testapp:
+    container_name: tespppp
+    image: site:latest
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: testdb
+      DB_USER: testc
+      DB_PASS: P@ssw0rd
+      DB_TYPE: maria
+    depends_on:
+      - db
+
+  db:
+    image: mariadb:10.11    # Используем импортированный образ
+    container_name: db       # Имя контейнера, как в задании
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: testdb          # Имя БД
+      MYSQL_USER: testc                # Пользователь
+      MYSQL_PASSWORD: P@ssw0rd         # Пароль пользователя
+      MYSQL_ROOT_PASSWORD: P@ssw0rd    # Root пароль (обязателен для MariaDB)

@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  db:
+    image: mariadb:10.11
+    container_name: web-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword    # Задайте надёжный пароль
+      MYSQL_DATABASE: webdb
+      MYSQL_USER: web
+      MYSQL_PASSWORD: P@ssw0rd
+    volumes:
+      - db_data:/var/lib/mysql    # Сохранение данных БД
+      - /root/zalupa/mnt/web/dump.sql:/docker-entrypoint-initdb.d/dump.sql   # Импорт дампа при первом запуске
+    networks:
+      - webnet
+
+  web:
+    image: php:apache
+    container_name: web-app
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - /root/zalupa/mnt/web:/var/www/html
+    depends_on:
+      - db
+    networks:
+      - webnet
+
+networks:
+  webnet:
+    driver: bridge
+
+volumes:
+  db_data:
