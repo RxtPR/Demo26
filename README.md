@@ -42,7 +42,7 @@
 Как запустить:
 ```bash
 apt-get install git
-git clone https://github.com/RxtPr/Demo26
+git clone https://github.com/RxtPR/Demo26
 cd start
 chmod +x 1mod_auto_frwl.sh
 ./1mod_auto_frwl.sh
@@ -83,7 +83,7 @@ chmod +x 1mod_auto_frwl.sh
 Как запустить:
 ```bash
 dnf install git
-git clone https://github.com/RxtPr/Demo26
+git clone https://github.com/RxtPR/Demo26
 cd start
 cd mod2
 chmod +x deploy_web.py
@@ -115,7 +115,7 @@ CLI-вариант `mod2/deploy_inf.sh` менее предпочтителен,
 
 ```bash
 dnf install git
-git clone https://github.com/RxtPr/Demo26
+git clone https://github.com/RxtPR/Demo26
 cd start
 cd mod2
 chmod +x deploy_inf.sh
