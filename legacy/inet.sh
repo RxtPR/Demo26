@@ -14,6 +14,10 @@ fi
 # Определяем короткое имя хоста (без домена)
 HOSTNAME=$(hostname -s | tr '[:upper:]' '[:lower:]')
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=module1_config.sh
+source "$SCRIPT_DIR/module1_config.sh"
+
 # Включение IP forwarding
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
 if ! grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null; then
@@ -76,8 +80,8 @@ case "$HOSTNAME" in
         firewall-cmd --permanent --policy=gateway-lan-to-world --remove-disable
 
         # Источники внутренних сетей (между ISP и роутерами)
-        add_source internal 172.16.1.0/28
-        add_source internal 172.16.2.0/28
+        add_source internal "$ISP_HQ_NET_CIDR"
+        add_source internal "$ISP_BR_NET_CIDR"
 
         # Сервисы на внешнем интерфейсе
         add_service external http
@@ -93,6 +97,8 @@ case "$HOSTNAME" in
         add_service internal dhcp
         add_service internal dns
         add_service internal samba
+        add_service internal ntp
+        add_service external ntp
         add_service internal http
         add_port internal 631/tcp
         add_port internal 445/tcp
@@ -115,15 +121,17 @@ case "$HOSTNAME" in
         firewall-cmd --zone=external --add-masquerade --permanent
 
         # Внутренние сети (VLAN) – добавляем как источники в зону internal
-        add_source internal 172.16.10.0/27
-        add_source internal 172.16.20.0/24
-        add_source internal 172.16.99.0/29
+        add_source internal "$HQ_SRV_NET_CIDR"
+        add_source internal "$HQ_CLI_NET_CIDR"
+        add_source internal "$MGMT_NET_CIDR"
 
         # GRE туннель (между HQ-RTR и BR-RTR) в trusted зону
-        add_source trusted 192.168.0.0/30
+        add_source trusted "$GRE_NET_CIDR"
 
         # Разрешить GRE протокол на внешнем интерфейсе
         add_service external gre
+        add_service internal ntp
+        add_service external ntp
 
         # Включить форвардинг для internal зоны
         firewall-cmd --zone=internal --add-forward --permanent
@@ -153,13 +161,15 @@ case "$HOSTNAME" in
         firewall-cmd --zone=external --add-masquerade --permanent
 
         # Локальная сеть
-        add_source internal 172.16.30.0/28
+        add_source internal "$BR_SRV_NET_CIDR"
 
         # GRE туннель (между BR-RTR и HQ-RTR) в trusted зону
-        add_source trusted 192.168.0.0/30
+        add_source trusted "$GRE_NET_CIDR"
 
         # Разрешить GRE протокол на внешнем интерфейсе
         add_service external gre
+        add_service internal ntp
+        add_service external ntp
 
         # Включить форвардинг для internal зоны
         firewall-cmd --zone=internal --add-forward --permanent

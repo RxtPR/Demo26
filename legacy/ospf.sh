@@ -20,6 +20,10 @@ if [[ "$HOSTNAME" != "hq-rtr" && "$HOSTNAME" != "br-rtr" ]]; then
     exit 1
 fi
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=module1_config.sh
+source "$SCRIPT_DIR/module1_config.sh"
+
 # Установка FRR (для ALT/RedOS используем dnf или apt-get в зависимости от системы)
 if command -v apt-get &>/dev/null; then
     # Debian/ALT
@@ -36,9 +40,6 @@ fi
 # Включаем демон ospfd в /etc/frr/daemons
 sed -i 's/^ospfd=.*/ospfd=yes/' /etc/frr/daemons
 
-# Пароль для аутентификации OSPF (общий для обоих маршрутизаторов)
-OSPF_PASSWORD="P@ssw0rd"
-
 # Формирование конфигурации в зависимости от хоста
 case "$HOSTNAME" in
     hq-rtr)
@@ -47,9 +48,9 @@ case "$HOSTNAME" in
 frr version 7.5.1
 frr defaults traditional
 !
-hostname hq-rtr.au-team.irpo
+hostname hq-rtr.$DOMAIN
 !
-router-id 192.168.0.2   ! IP туннеля на HQ-RTR
+router-id $HQ_GRE_IP
 !
 interface gre-tun
  ip ospf authentication message-digest
@@ -58,11 +59,11 @@ interface gre-tun
  ip ospf cost 10
 !
 router ospf
- ospf router-id 192.168.0.2
- network 192.168.0.0/30 area 0.0.0.0
- network 172.16.10.0/27 area 0.0.0.0
- network 172.16.20.0/24 area 0.0.0.0
- network 172.16.99.0/29 area 0.0.0.0
+ ospf router-id $HQ_GRE_IP
+ network $GRE_NET_CIDR area 0.0.0.0
+ network $HQ_SRV_NET_CIDR area 0.0.0.0
+ network $HQ_CLI_NET_CIDR area 0.0.0.0
+ network $MGMT_NET_CIDR area 0.0.0.0
  passive-interface default
  no passive-interface gre-tun
 !
@@ -76,9 +77,9 @@ EOF
 frr version 7.5.1
 frr defaults traditional
 !
-hostname br-rtr.au-team.irpo
+hostname br-rtr.$DOMAIN
 !
-router-id 192.168.0.1   ! IP туннеля на BR-RTR
+router-id $BR_GRE_IP
 !
 interface gre-tun
  ip ospf authentication message-digest
@@ -87,9 +88,9 @@ interface gre-tun
  ip ospf cost 10
 !
 router ospf
- ospf router-id 192.168.0.1
- network 192.168.0.0/30 area 0.0.0.0
- network 172.16.30.0/28 area 0.0.0.0
+ ospf router-id $BR_GRE_IP
+ network $GRE_NET_CIDR area 0.0.0.0
+ network $BR_SRV_NET_CIDR area 0.0.0.0
  passive-interface default
  no passive-interface gre-tun
 !

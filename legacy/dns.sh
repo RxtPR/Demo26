@@ -1,8 +1,7 @@
 #!/bin/bash
 # Автоматическая настройка BIND DNS сервера на RED OS (HQ-SRV)
 # Скрипт предназначен ТОЛЬКО для хоста hq-srv (проверка по hostname)
-# Актуализировано под новые IP-адреса (vlan100: 172.16.10.0/27,
-# vlan200: 172.16.20.0/24, локалка BR: 172.16.30.0/28 и т.д.)
+# IP-адреса и домен берутся из module1_config.sh
 
 set -e
 
@@ -21,13 +20,17 @@ if [[ "$HOSTNAME" != "hq-srv" ]]; then
     exit 1
 fi
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=module1_config.sh
+source "$SCRIPT_DIR/module1_config.sh"
+
 # 1. Установка пакетов
 echo "setup BIND"
 dnf install -y bind bind-utils
 
 # 2. Основная конфигурация
 echo "setup /etc/named.conf..."
-cat > /etc/named.conf << 'EOF'
+cat > /etc/named.conf << EOF
 options {
     listen-on port 53 { any; };
     listen-on-v6 port 53 { none; };
@@ -37,17 +40,16 @@ options {
     allow-recursion { any; };
     
     forwarders {
-        8.8.8.8;
-        8.8.4.4;
+        $DNS_FORWARDER;
     };
     
     dnssec-validation auto;
 };
 
 # Прямая зона
-zone "au-team.irpo" IN {
+zone "$DOMAIN" IN {
     type master;
-    file "au-team.irpo.zone";
+    file "$DOMAIN.zone";
     allow-update { none; };
 };
 
@@ -66,9 +68,9 @@ EOF
 
 # Прямая зона (только актуальные записи)
 echo "Создание прямой зоны..."
-cat > /var/named/au-team.irpo.zone << 'EOF'
-$TTL 86400
-@   IN  SOA hq-srv.au-team.irpo. admin.au-team.irpo. (
+cat > "/var/named/$DOMAIN.zone" << EOF
+\$TTL 86400
+@   IN  SOA hq-srv.$DOMAIN. admin.$DOMAIN. (
         2025030801 ; Serial (дата+версия)
         21600      ; Refresh
         3600       ; Retry
@@ -76,42 +78,39 @@ $TTL 86400
         86400 )    ; Minimum TTL
 
 ; NS запись
-@          IN  NS  hq-srv.au-team.irpo.
+@          IN  NS  hq-srv.$DOMAIN.
 
 ; A записи
-hq-rtr     IN  A   172.16.1.2
-br-rtr     IN  A   172.16.2.2
-hq-srv     IN  A   172.16.10.2
-hq-cli     IN  A   172.16.20.2
-br-srv     IN  A   172.16.30.2
-docker     IN  A   172.16.1.1
-web        IN  A   172.16.2.1
+hq-rtr     IN  A   $ISP_HQ_RTR_IP
+br-rtr     IN  A   $ISP_BR_RTR_IP
+hq-srv     IN  A   $HQ_SRV_IP
+hq-cli     IN  A   $HQ_CLI_DNS_IP
+br-srv     IN  A   $BR_SRV_IP
+docker     IN  A   $ISP_HQ_ISP_IP
+web        IN  A   $ISP_BR_ISP_IP
 
 ; CNAME
-moodle     IN  CNAME hq-rtr.au-team.irpo.
-wiki       IN  CNAME hq-rtr.au-team.irpo.
+moodle     IN  CNAME hq-rtr.$DOMAIN.
+wiki       IN  CNAME hq-rtr.$DOMAIN.
 EOF
 
 # Единая обратная зона для 172.16.X.X
 echo "Создание обратной зоны для 172.16.0.0/16..."
-cat > /var/named/172.16.rev.zone << 'EOF'
-$TTL 86400
-@   IN  SOA hq-srv.au-team.irpo. admin.au-team.irpo. (
+cat > /var/named/172.16.rev.zone << EOF
+\$TTL 86400
+@   IN  SOA hq-srv.$DOMAIN. admin.$DOMAIN. (
         2025030801 ; Serial
         21600      ; Refresh
         3600       ; Retry
         604800     ; Expire
         86400 )    ; Minimum TTL
 
-@          IN  NS  hq-srv.au-team.irpo.
+@          IN  NS  hq-srv.$DOMAIN.
 
 ; PTR записи
-; hq-rtr (172.16.1.2)
-2.1        IN  PTR hq-rtr.au-team.irpo.
-; hq-srv (172.16.10.2)
-2.10       IN  PTR hq-srv.au-team.irpo.
-; hq-cli (172.16.20.3)
-2.20       IN  PTR hq-cli.au-team.irpo.
+$(printf "%s" "$ISP_HQ_RTR_IP" | awk -F. '{print $4"."$3}')        IN  PTR hq-rtr.$DOMAIN.
+$(printf "%s" "$HQ_SRV_IP" | awk -F. '{print $4"."$3}')        IN  PTR hq-srv.$DOMAIN.
+$(printf "%s" "$HQ_CLI_DNS_IP" | awk -F. '{print $4"."$3}')        IN  PTR hq-cli.$DOMAIN.
 EOF
 
 # 5. Установка прав
@@ -121,12 +120,12 @@ chmod 640 /var/named/*.zone
 # 6. Проверка синтаксиса
 echo "Проверка конфигурации..."
 named-checkconf
-named-checkzone au-team.irpo /var/named/au-team.irpo.zone
+named-checkzone "$DOMAIN" "/var/named/$DOMAIN.zone"
 named-checkzone 16.172.in-addr.arpa /var/named/172.16.rev.zone
 
 # 7. Часовой пояс (для Москвы)
 echo "Установка часового пояса..."
-timedatectl set-timezone Europe/Moscow
+timedatectl set-timezone "$TIMEZONE"
 
 # 8. Запуск службы
 echo "Запуск службы BIND..."

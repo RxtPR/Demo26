@@ -13,8 +13,9 @@ fi
 # Определяем короткое имя хоста (без домена)
 HOSTNAME=$(hostname -s | tr '[:upper:]' '[:lower:]')
 
-# Общие настройки
-DNS_SERVER="8.8.8.8"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=module1_config.sh
+source "$SCRIPT_DIR/module1_config.sh"
 
 # Функция настройки ethernet-подключения
 configure_nm_connection() {
@@ -97,13 +98,13 @@ enable_ip_forward() {
 case "$HOSTNAME" in
     isp)
         # Интерфейс в сторону интернета (DHCP)
-        configure_nm_connection "ens18-dhcp" "ens18" "DHCP" "" "$DNS_SERVER"
+        configure_nm_connection "ens18-dhcp" "ens18" "DHCP" "" "$PUBLIC_DNS"
 
         # К HQ-RTR (ens19)
-        configure_nm_connection "ens19-to-hq" "ens19" "172.16.1.1/28" "none" "$DNS_SERVER"
+        configure_nm_connection "ens19-to-hq" "ens19" "${ISP_HQ_ISP_IP}/28" "none" "$PUBLIC_DNS"
 
         # К BR-RTR (ens20)
-        configure_nm_connection "ens20-to-br" "ens20" "172.16.2.1/28" "none" "$DNS_SERVER"
+        configure_nm_connection "ens20-to-br" "ens20" "${ISP_BR_ISP_IP}/28" "none" "$PUBLIC_DNS"
 
         enable_ip_forward
 
@@ -117,7 +118,7 @@ case "$HOSTNAME" in
 
     hq-rtr)
         # Основной интерфейс к ISP (ens18)
-        configure_nm_connection "ens18-to-isp" "ens18" "172.16.1.2/28" "172.16.1.1" "$DNS_SERVER"
+        configure_nm_connection "ens18-to-isp" "ens18" "${ISP_HQ_RTR_IP}/28" "$ISP_HQ_ISP_IP" "$PUBLIC_DNS"
 
         # Настройка транкового интерфейса ens19 (без IP)
         for conn in $(nmcli -t -f NAME connection show | grep ens19 || true); do
@@ -130,49 +131,53 @@ case "$HOSTNAME" in
         sleep 2  # небольшая пауза для активации
 
         # VLAN-интерфейсы
-        configure_vlan "vlan100" "ens19" "100" "172.16.10.1/27" "none" "$DNS_SERVER"
-        configure_vlan "vlan200" "ens19" "200" "172.16.20.1/24" "none" "$DNS_SERVER"
-        configure_vlan "vlan999" "ens19" "999" "172.16.99.1/29" "none" "$DNS_SERVER"
+        configure_vlan "vlan${HQ_SRV_VLAN_ID}" "ens19" "$HQ_SRV_VLAN_ID" "${HQ_SRV_GW_IP}/${HQ_SRV_PREFIX}" "none" "$PUBLIC_DNS"
+        configure_vlan "vlan${HQ_CLI_VLAN_ID}" "ens19" "$HQ_CLI_VLAN_ID" "${HQ_CLI_GW_IP}/${HQ_CLI_PREFIX}" "none" "$PUBLIC_DNS"
+        configure_vlan "vlan${MGMT_VLAN_ID}" "ens19" "$MGMT_VLAN_ID" "${MGMT_GW_IP}/${MGMT_PREFIX}" "none" "$PUBLIC_DNS"
 
         # GRE-туннель к BR-RTR (с TTL 64)
-        configure_gre "gre-tun" "172.16.1.2" "172.16.2.2" "192.168.0.2/30" "$DNS_SERVER"
+        configure_gre "gre-tun" "$ISP_HQ_RTR_IP" "$ISP_BR_RTR_IP" "${HQ_GRE_IP}/30" "$PUBLIC_DNS"
 
         enable_ip_forward
 
         # NAT для локальных сетей
-        iptables -t nat -A POSTROUTING -s 172.16.10.0/27 -o ens18 -j MASQUERADE 2>/dev/null || true
-        iptables -t nat -A POSTROUTING -s 172.16.20.0/24 -o ens18 -j MASQUERADE 2>/dev/null || true
-        iptables -t nat -A POSTROUTING -s 172.16.99.0/29 -o ens18 -j MASQUERADE 2>/dev/null || true
+        iptables -t nat -A POSTROUTING -s "$HQ_SRV_NET_CIDR" -o ens18 -j MASQUERADE 2>/dev/null || true
+        iptables -t nat -A POSTROUTING -s "$HQ_CLI_NET_CIDR" -o ens18 -j MASQUERADE 2>/dev/null || true
+        iptables -t nat -A POSTROUTING -s "$MGMT_NET_CIDR" -o ens18 -j MASQUERADE 2>/dev/null || true
         ;;
 
     br-rtr)
         # Основной интерфейс к ISP (ens18)
-        configure_nm_connection "ens18-to-isp" "ens18" "172.16.2.2/28" "172.16.2.1" "$DNS_SERVER"
+        configure_nm_connection "ens18-to-isp" "ens18" "${ISP_BR_RTR_IP}/28" "$ISP_BR_ISP_IP" "$PUBLIC_DNS"
 
         # Локальная сеть (ens19)
-        configure_nm_connection "ens19-local" "ens19" "172.16.30.1/28" "none" "$DNS_SERVER"
+        configure_nm_connection "ens19-local" "ens19" "${BR_SRV_GW_IP}/${BR_SRV_PREFIX}" "none" "$PUBLIC_DNS"
 
         # GRE-туннель к HQ-RTR (с TTL 64)
-        configure_gre "gre-tun" "172.16.2.2" "172.16.1.2" "192.168.0.1/30" "$DNS_SERVER"
+        configure_gre "gre-tun" "$ISP_BR_RTR_IP" "$ISP_HQ_RTR_IP" "${BR_GRE_IP}/30" "$PUBLIC_DNS"
 
         enable_ip_forward
 
         # NAT для локальной сети
-        iptables -t nat -A POSTROUTING -s 172.16.30.0/28 -o ens18 -j MASQUERADE 2>/dev/null || true
+        iptables -t nat -A POSTROUTING -s "$BR_SRV_NET_CIDR" -o ens18 -j MASQUERADE 2>/dev/null || true
         ;;
 
     hq-srv)
         # VLAN-интерфейс для сервера
-        nmcli connection delete "ens18-vlan100" 2>/dev/null || true
-        nmcli connection add type vlan con-name "ens18-vlan100" ifname "ens18.100" \
-            dev "ens18" id "100" ipv4.method manual ipv4.addresses "172.16.10.2/27" \
-            ipv4.gateway "172.16.10.1" ipv4.dns "$DNS_SERVER"
-        nmcli connection up "ens18-vlan100"
+        nmcli connection delete "ens18-vlan${HQ_SRV_VLAN_ID}" 2>/dev/null || true
+        nmcli connection add type vlan con-name "ens18-vlan${HQ_SRV_VLAN_ID}" ifname "ens18.${HQ_SRV_VLAN_ID}" \
+            dev "ens18" id "$HQ_SRV_VLAN_ID" ipv4.method manual ipv4.addresses "${HQ_SRV_IP}/${HQ_SRV_PREFIX}" \
+            ipv4.gateway "$HQ_SRV_GW_IP" ipv4.dns "$PUBLIC_DNS"
+        nmcli connection up "ens18-vlan${HQ_SRV_VLAN_ID}"
+        ;;
+
+    br-srv)
+        configure_nm_connection "ens18-local" "ens18" "${BR_SRV_IP}/${BR_SRV_PREFIX}" "$BR_SRV_GW_IP" "$PUBLIC_DNS"
         ;;
 
     *)
         echo "Ошибка: неизвестный хост '$HOSTNAME'" >&2
-        echo "Допустимые имена: isp, hq-rtr, br-rtr, hq-srv" >&2
+        echo "Допустимые имена: isp, hq-rtr, br-rtr, hq-srv, br-srv" >&2
         exit 1
         ;;
 esac
